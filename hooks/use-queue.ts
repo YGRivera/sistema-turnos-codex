@@ -1,46 +1,64 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { EMPTY_STATE, QueueState, STORAGE_KEY } from "../lib/queue";
+import { EMPTY_STATE, QueueState } from "../lib/queue";
+
+type QueueResponse = { version: number; state: QueueState; issuedNumber?: number; error?: string };
 
 export function useQueue() {
   const [queue, setQueue] = useState<QueueState>(EMPTY_STATE);
   const [ready, setReady] = useState(false);
-  const queueRef = useRef(EMPTY_STATE);
-  const refresh = useCallback(() => {
+  const [error, setError] = useState<string | null>(null);
+  const versionRef = useRef(-1);
+
+  const sync = useCallback(async () => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      const next = saved ? { ...EMPTY_STATE, ...JSON.parse(saved) as Partial<QueueState> } : EMPTY_STATE;
-      queueRef.current = next;
-      setQueue(next);
-    } catch { queueRef.current = EMPTY_STATE; setQueue(EMPTY_STATE); }
+      const response = await fetch("/api/queue", { cache: "no-store" });
+      const result = await response.json() as QueueResponse;
+      if (!response.ok) throw new Error(result.error ?? "No se pudo cargar la fila.");
+      if (result.version >= versionRef.current) {
+        versionRef.current = result.version;
+        setQueue(result.state);
+      }
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo conectar con el servidor.");
+    } finally {
+      setReady(true);
+    }
   }, []);
+
   useEffect(() => {
-    refresh(); setReady(true);
-    const onStorage = (event: StorageEvent) => { if (event.key === STORAGE_KEY) refresh(); };
-    window.addEventListener("storage", onStorage);
-    const channel = new BroadcastChannel("turnia.queue");
-    channel.onmessage = refresh;
-    return () => { window.removeEventListener("storage", onStorage); channel.close(); };
-  }, [refresh]);
-  const update = useCallback((mutate: (state: QueueState) => QueueState) => {
-    const next = mutate(queueRef.current);
-    queueRef.current = next;
-    setQueue(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    const channel = new BroadcastChannel("turnia.queue");
-    channel.postMessage("update");
-    channel.close();
+    void sync();
+    const timer = window.setInterval(() => void sync(), 2000);
+    return () => window.clearInterval(timer);
+  }, [sync]);
+
+  const act = useCallback(async (action: "take" | "call", module?: number) => {
+    const response = await fetch("/api/queue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, module }),
+    });
+    const result = await response.json() as QueueResponse;
+    if (!response.ok) {
+      const message = result.error ?? "No se pudo actualizar la fila.";
+      setError(message);
+      throw new Error(message);
+    }
+    versionRef.current = Math.max(versionRef.current, result.version);
+    setQueue(result.state);
+    setError(null);
+    return result;
   }, []);
-  const takeTicket = useCallback(() => {
-    const issued = queueRef.current.nextNumber;
-    update(state => ({ ...state, nextNumber: issued + 1, waiting: [...state.waiting, issued] }));
-    return issued;
-  }, [update]);
-  const callNext = useCallback((module: number) => update(state => {
-    const [number, ...waiting] = state.waiting;
-    if (number === undefined) return state;
-    const current = { number, module, calledAt: new Date().toISOString() };
-    return { ...state, waiting, current, recent: [current, ...state.recent].slice(0, 4) };
-  }), [update]);
-  return { queue, ready, takeTicket, callNext };
+
+  const takeTicket = useCallback(async () => {
+    const result = await act("take");
+    return result.issuedNumber!;
+  }, [act]);
+
+  const callNext = useCallback(async (module: number) => {
+    await act("call", module);
+  }, [act]);
+
+  return { queue, ready, error, takeTicket, callNext };
 }
