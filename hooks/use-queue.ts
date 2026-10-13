@@ -52,7 +52,7 @@ export function useQueue() {
     return () => window.clearInterval(timer);
   }, [sync]);
 
-  const act = useCallback(async (action: "take" | "call", module?: number) => {
+  const act = useCallback(async (action: "take" | "call" | "finish", module?: number) => {
     const response = await fetch("/api/queue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -79,5 +79,9 @@ export function useQueue() {
     await act("call", module);
   }, [act]);
 
-  return { queue, ready, error, takeTicket, callNext };
+  const finishService = useCallback(async (module: number) => {
+    await act("finish", module);
+  }, [act]);
+
+  return { queue, ready, error, takeTicket, callNext, finishService };
 }
