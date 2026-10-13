@@ -47,3 +47,8 @@ También puedes ejecutar `vercel` desde la terminal con Vercel CLI instalada y a
 
 Para desarrollo local, copia `.env.example` como `.env.local` y configura `DATABASE_URL` con una cadena de conexión Neon. La aplicación requiere esa variable para compartir el estado entre dispositivos. La pantalla consulta cambios cada dos segundos.
 
+
+
+### Mesas de atención
+
+El panel de operador muestra las cuatro mesas. Cada mesa puede llamar al siguiente turno y finalizar su atención de forma independiente; la pantalla pública y el historial se sincronizan con el estado compartido.
