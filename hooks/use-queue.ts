@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { EMPTY_STATE, QueueState } from "../lib/queue";
+import { EMPTY_STATE, isQueueState, QueueState, STORAGE_KEY } from "../lib/queue";
 
 type QueueResponse = { version: number; state: QueueState; issuedNumber?: number; error?: string };
 
@@ -13,8 +13,27 @@ export function useQueue() {
   const sync = useCallback(async () => {
     try {
       const response = await fetch("/api/queue", { cache: "no-store" });
-      const result = await response.json() as QueueResponse;
+      let result = await response.json() as QueueResponse;
       if (!response.ok) throw new Error(result.error ?? "No se pudo cargar la fila.");
+      // Import existing browser-only data once, but let empty devices wait for it.
+      if (result.version === 0) {
+        const legacy = localStorage.getItem(STORAGE_KEY);
+        if (legacy) {
+          try {
+            const state: unknown = JSON.parse(legacy);
+            if (isQueueState(state)) {
+              const migrated = await fetch("/api/queue", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "migrate", state }),
+              });
+              if (migrated.ok) result = await migrated.json() as QueueResponse;
+            }
+          } catch {
+            // Keep serving the shared server state if old browser data is invalid.
+          }
+        }
+      }
       if (result.version >= versionRef.current) {
         versionRef.current = result.version;
         setQueue(result.state);
