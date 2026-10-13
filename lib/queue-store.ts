@@ -27,6 +27,19 @@ export async function readQueue() {
   return { version: Number(row.version), state: row.state as QueueState };
 }
 
+export async function importLegacyQueue(state: QueueState) {
+  const sql = getSql();
+  await ensureStore(sql);
+  const imported = await sql`UPDATE turnia_queue_state
+    SET version = version + 1, state = ${JSON.stringify(state)}::jsonb
+    WHERE id = ${ROW_ID} AND version = 0
+    RETURNING version, state`;
+  if (imported.length) {
+    return { version: Number(imported[0].version), state: imported[0].state as QueueState };
+  }
+  return readQueue();
+}
+
 export async function mutateQueue(mutate: (state: QueueState) => QueueState) {
   const sql = getSql();
   await ensureStore(sql);
