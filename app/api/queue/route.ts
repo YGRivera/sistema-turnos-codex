@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { mutateQueue, readQueue } from "../../../lib/queue-store";
+import { isQueueState } from "../../../lib/queue";
+import { importLegacyQueue, mutateQueue, readQueue } from "../../../lib/queue-store";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,13 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { action?: string; module?: number };
+    const body = await request.json() as { action?: string; module?: number; state?: unknown };
+    if (body.action === "migrate") {
+      if (!isQueueState(body.state)) {
+        return NextResponse.json({ error: "El estado anterior no tiene un formato válido." }, { status: 400 });
+      }
+      return NextResponse.json(await importLegacyQueue(body.state), { headers: { "Cache-Control": "no-store" } });
+    }
     if (body.action !== "take" && body.action !== "call") {
       return NextResponse.json({ error: "Acción no válida." }, { status: 400 });
     }
